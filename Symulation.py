@@ -35,12 +35,15 @@ class Sym:
 			action = resultOfDecision[0]
 			target = resultOfDecision[1]
 			ideaOriginators = resultOfDecision[2]
-			# So... people who come up with the idea shouldn't be able to rebell against it.
 			resultOfRebelDetection = self.detectRebelsAndRemoveThemFromParticipants(playersPerformingAction,ideaOriginators)
 			listOfRebels = resultOfRebelDetection[0]
 			playersPerformingAction = resultOfRebelDetection[1]
-			
-			actionResult = action.applyAction(playersPerformingAction,target)
+			# now we have to implement bumps. For now takeCareOfBumo doesn't work, since I need to implement relationships first
+			bumpDidntFailAction = self.takeCareOfBump(playersPerformingAction,target)
+			if bumpDidntFailAction:
+				actionResult = action.applyAction(playersPerformingAction,target)
+			else:
+				actionResult = action.failAction(playersPerformingAction,target)
 					
 			# This listOfPerformers is only for log to look nice. Players that are target and performer are removed from performers lists by action methods anyway to be extra safe.
 			if not target is None:
@@ -48,11 +51,16 @@ class Sym:
 			else:
 				listOfPerformers = playersPerformingAction
 			
-			self.writeActionInformationToLog(action,actionResult,listOfPerformers,target,listOfRebels)
+			self.writeActionInformationToLog(action,actionResult,listOfPerformers,target,listOfRebels,ideaOriginators)
 			
 			for p in playersPerformingAction:
 				p.removeCalories(self.hourlyCalorieCost*action.time)
 				p.simTime+=action.time		
+				p.passTimeOnAfflictions(action.time)
+				afflictionChanges = p.checkForAfflictionsToPutAndRemove()
+				#print(afflictionChanges)
+				self.writeAfflictionInformationToLog(p,afflictionChanges)
+						
 				stringToWrite = p.getStringStatus(1) + "\tinventory\n"+ p.getStringItemList(2) + "\ttime passed so far:{}\n".format(p.simTime)
 				self.theLog.writeToLog(stringToWrite) # Writes player status to the log
 				isDead = p.isDead()
@@ -62,6 +70,8 @@ class Sym:
 					self.theLog.writeToLog(stringToWrite)
 							
 			allFinished = self.areAllFinished()
+			
+			
 	# finds a player that has the least of time passed	
 	# returns None if everyone is above dayDuration time
 	def findEarlyiestPlayer(self):
@@ -146,7 +156,7 @@ class Sym:
 		return True
 			
 	# Writes information about performed action into the log
-	def writeActionInformationToLog(self,action,actionResult,playerList,targetList = None,listOfRebels = None):
+	def writeActionInformationToLog(self,action,actionResult,playerList,targetList = None,listOfRebels = None,originators = None ):
 		if actionResult:
 			textToPrint = "success"
 		else:
@@ -156,10 +166,13 @@ class Sym:
 			playerNames+=p.Name+', '
 		playerNames = playerNames[:-2]
 		targetNames =""
-		if (not targetList is None) and (not targetList[0] is None):
-			for t in targetList:
-				targetNames+=t.Name+', '
-			targetNames = targetNames[:-2]
+		if (not targetList is None):
+			if targetList:
+				if not targetList[0] is None:
+					targetNames = " targets: "
+					for t in targetList:
+						targetNames+=t.Name+', '
+				targetNames = targetNames[:-2]
 			
 		rebelString = ""
 		if (not listOfRebels is None):
@@ -171,12 +184,40 @@ class Sym:
 					tmpString = list(PlayerClass.Player.rebelReasonDict.keys())[list(PlayerClass.Player.rebelReasonDict.values()).index(r["cause"])]
 					rebelString+="{0} for {1}, ".format(r["rebel"].Name,tmpString)
 				rebelString = rebelString[:-2]
-		stringToWriteToLog = "\n==== Action Performed: {0}, result:{1}\n== Action performed by:{2}{3}".format(action.name,textToPrint,playerNames,rebelString)
-		if not targetNames == "":
-			stringToWriteToLog+=" targets: {}\n".format(targetNames)
-		else:
-			stringToWriteToLog+='\n'
+		originatorsText = ""
+		if (not originators is None):
+			if originators:
+				originatorsText = " originators:"
+				for o in originators:
+					originatorsText+=o.Name+', '
+				originatorsText = originatorsText[:-2]
+		stringToWriteToLog = "\n==== Action Performed: {0}, result:{1}\n== Action performed by:{2}".format(action.name,textToPrint,playerNames)
+		stringToWriteToLog+=targetNames+originatorsText+rebelString+'\n'
 		self.theLog.writeToLog(stringToWriteToLog)
+	
+	# Writes information about gained and lost afflictions
+	def writeAfflictionInformationToLog(self,player,afflictionChanges):
+		afflictionStringToWrite = ""
+		if afflictionChanges[0]:	# added afflictions
+			if len(afflictionChanges[0]) == 1:
+				afflictionStringToWrite+="\t{} gained affliction: ".format(player.Name)
+			else:
+				afflictionStringToWrite+="\t{} gained afflictions: ".format(player.Name)		
+			for a in afflictionChanges[0]:
+				afflictionStringToWrite+="{}, ".format(a.name)
+			afflictionStringToWrite = afflictionStringToWrite[:-2]
+			afflictionStringToWrite+='\n'
+		if afflictionChanges[1]:	# removed afflictions
+			if len(afflictionChanges[1]) == 1:
+				afflictionStringToWrite+="\t{} lost affliction: ".format(player.Name)
+			else:
+				afflictionStringToWrite+="\t{} lost afflictions: ".format(player.Name)		
+			for a in afflictionChanges[1]:
+				afflictionStringToWrite+="{}, ".format(a.name)
+			afflictionStringToWrite = afflictionStringToWrite[:-2]
+			afflictionStringToWrite+='\n'
+		if not afflictionStringToWrite == "":
+			self.theLog.writeToLog(afflictionStringToWrite)
 	
 	# gives all players an unique id - becuase things go bad if they are not unique.
 	def giveAllPlayersUniqueIDs(self):
@@ -202,6 +243,12 @@ class Sym:
 			else:
 				listOfParticipants.append(player)
 		return listOfRebels,listOfParticipants
+
+	# Well. This method takes care of bumps
+	# If there was no bump, or bump didn't interrupted current action
+	def takeCareOfBump(self, listOfPlayers,target):
+		listOfBumpablePlayers = []
+		return True
 class Team:
 	# listOfPlayers - list with players as elements
 	def __init__(self,listOfPlayers):
